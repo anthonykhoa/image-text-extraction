@@ -1,0 +1,42 @@
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/andybrewer/mvp/mvp.css">
+<style>
+.imgContainer {
+  display: flex;
+}
+.imgContainer img{
+  margin-right: 10px;
+    width: 100%;
+      min-width: 0;
+}
+.imgContainer pre{
+    width: 100%;
+}
+</style>
+<h1 style="text-align:center;">Image Texts</h1>
+<main>
+</main>
+<script>
+  const main = document.querySelector('main')
+  const jobid = window.location.pathname.split('/')[2]
+  const getJobs = () => {
+  fetch(`/api/jobs/${jobid}`).then(r => r.json()).then(data => {
+    console.log(data)
+    const text = (data.status === false ? 'image is processing' : data.text);
+    main.innerHTML = `
+      <div class="imgContainer">
+      <img src="${data.url}" alt="" />
+      <pre>${text}</pre>
+      </div>
+      <hr>
+    `
+    if (!data.status) {
+      setTimeout(getJobs, 2000)
+    }
+  })
+}
+getJobs()
+
+</script>
+
+
