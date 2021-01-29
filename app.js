@@ -1,109 +1,127 @@
-const express = require('express');
-const app = express();
-const multer = require('multer');
-const path = require('path');
+const express = require('express')
+const app = express()
+const multer = require('multer')
+const path = require('path')
 const fs = require('file-system')
-const { v4: uuidv4 } = require('uuid');
-const { createWorker } = require('tesseract.js');
-const worker = createWorker();
-const jobQueue = {};
+const { v4: uuidv4 } = require('uuid')
+const { createWorker } = require('tesseract.js')
+const worker = createWorker()
+const jobID_map = {}
 const tessQueue = []
 
 /*
 	STRUCTURE FOR jobQueue
 	{
-		job_ID: {
+		job_ID: [{
 			status: false;
-			url: localhost:8123/api/job_ID
+			url: localhost:8123/jobs/job_ID
 			text: false;
-		}
+		}],
+		
+		job_ID: [{file}, {file}, {file}]
 	}
 
+
+	tessQueue is an array of arrays
 */
 
 //makes uploads folder on server startup
 fs.mkdir(__dirname + '/uploads', (err) => {
-	if (err) return ;
+  if (err) return
 })
 
+const processTess = async (result, uuid) => {
+  let index = 0
+  while (index !== result.length) {
+    await worker.load()
+    await worker.loadLanguage('eng')
+    await worker.initialize('eng')
+    const {
+      data: { text },
+    } = await worker.recognize(result[index])
+    jobID_map[uuid][index].text = text
+    jobID_map[uuid][index].status = true
+  }
+}
 
 //analyzes images according to queue
 const tesseractAnalysis = async () => {
-	if (tessQueue.length) {
-		await worker.load();
-		await worker.loadLanguage('eng');
-		await worker.initialize('eng');
-		const result = tessQueue.shift();
-		console.log(result)
-		const { data: { text } } = await worker.recognize(result.data);
-		jobQueue[result.uuid].text = text;
-		jobQueue[result.uuid].status = true;
-		//await worker.terminate();
-	}
-	setTimeout(tesseractAnalysis, 1000);
+  if (tessQueue.length) {
+    const result = tessQueue.shift()
+    await processTess(result, result.uuid)
+  }
+  setTimeout(tesseractAnalysis, 1000)
 }
 
-tesseractAnalysis();
-
+tesseractAnalysis()
 
 //makes uuid and checks if uuid already taken
-const createUUID= (uuid=uuidv4()) => (uuid in jobQueue) ? createUUID() : uuid
+const createUUID = (uuid = uuidv4()) =>
+  uuid in jobID_map ? createUUID() : uuid
 
 //makes sure only images can be uploaded
 const checkFileType = (req, file, cb) => {
-	const filetypes = /jpeg|jpg|png/;
-	//check ext
-	const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-	//check mime
-	const mimetype = filetypes.test(file.mimetype);
-	req.errors = mimetype && extname ? false : true;
-	//req.errors = false;
-	cb(null, true)
+  const filetypes = /jpeg|jpg|png/
+  //check ext
+  const extname = filetypes.test(path.extname(file.originalname).toLowerCase())
+  //check mime
+  const mimetype = filetypes.test(file.mimetype)
+  req.errors = mimetype && extname ? false : true
+  //req.errors = false;
+  cb(null, true)
 }
 
 //set storage engine
 //timestamp added incase of same file-name uploads
 const storage = multer.diskStorage({
-	destination: __dirname + '/uploads',
-	filename: (req, file, cb) => {
-		cb(null, file.originalname + '-' + Date.now() +
-		path.extname(file.originalname))
-	}
-});
+  destination: __dirname + '/uploads',
+  filename: (_, file, cb) => {
+    cb(
+      null,
+      file.originalname + '-' + Date.now() + path.extname(file.originalname)
+    )
+  },
+})
 
 const upload = multer({
-	storage: storage,
-	fileFilter: (req, file, cb) => checkFileType(req, file, cb)
+  storage: storage,
+  fileFilter: (req, file, cb) => checkFileType(req, file, cb),
 })
 
-app.use('/upload', express.static(__dirname + '/uploads'));
-app.use('/', express.static(__dirname + '/uploads'));
+app.use('/upload', express.static(__dirname + '/uploads'))
+app.use('/', express.static(__dirname + '/uploads'))
 
 //returns obj in queue
-app.get('/api/jobs/:jobID', (req, res) => res.json(jobQueue[req.params['jobID']]));
+app.get('/api/jobs/:jobID', (req, res) =>
+  res.json(jobID_map[req.params['jobID']])
+)
 
 app.get('/jobs/:jobID', (req, res) => {
-	res.sendFile(__dirname + '/extracted.html');
+  res.sendFile(__dirname + '/extracted.html')
 })
 
-//allow only images, and file upload at a time
+//allow only images
 app.post('/upload', upload.array('images'), async (req, res) => {
-	if (req.errors) return res.status(400).json('IMAGE FILES ONLY');
-	if (req.files.length > 1) return res.status(400).json('ONLY 1 FILE ALLOWED')
+  if (req.errors) return res.status(400).json('IMAGE FILES ONLY')
 
-	fs.readFile(__dirname + `/uploads/${req.files[0].filename}`, (err, data) => {
-		if (err) return res.json('error');
-		const uuid = createUUID();
-		jobQueue[uuid] = {
-			status: false,
-			url: `/upload/${req.files[0].filename}`
-		}
-		tessQueue.push({data, uuid})
-		res.json(`localhost:8123/jobs/${uuid}`)
-	});
-});
+  const uuid = createUUID()
+  jobID_map[uuid] = []
+  tessQueue.push([])
+  //set uuid property to the array in queue
+  tessQueue[tessQueue.length - 1].uuid = uuid
+  req.files.forEach((file) => {
+    fs.readFile(__dirname + `/uploads/${file.filename}`, (err, data) => {
+      if (err) return res.json('error')
+      jobID_map[uuid].push({
+        status: false,
+        url: `/upload/${file.filename}`,
+      })
+      tessQueue[tessQueue.length - 1].push(data)
+    })
+  })
+  res.json(`localhost:${process.env.PORT || 8123}/jobs/${uuid}`)
+})
 
+app.get('/', (_, res) => res.sendFile(__dirname + '/index.html'))
 
-app.get('/', (req, res) => res.sendFile(__dirname + '/index.html'))
-
-app.listen(process.env.PORT || 8123);
+app.listen(process.env.PORT || 8123)

@@ -22,17 +22,24 @@
   const getJobs = () => {
   fetch(`/api/jobs/${jobid}`).then(r => r.json()).then(data => {
     console.log(data)
-    const text = (data.status === false ? 'image is processing' : data.text);
-    main.innerHTML = `
+    let i = 0;
+    main.innerHTML = data.reduce((acc, d) => {
+      let text;
+      if (d.status === false) text = 'image is processing';
+      else {
+        text = d.text;
+        i++;
+      }
+      return acc + 
+      `
       <div class="imgContainer">
-      <img src="${data.url}" alt="" />
+      <img src="${d.url}" alt="" />
       <pre>${text}</pre>
       </div>
       <hr>
-    `
-    if (!data.status) {
-      setTimeout(getJobs, 2000)
-    }
+      `
+    }, '');
+    if (i !== data.length) setTimeout(getJobs, 500);
   })
 }
 getJobs()

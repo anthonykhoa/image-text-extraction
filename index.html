@@ -46,10 +46,9 @@ document.body.addEventListener('drop', (e) => {
     method: 'POST',
     body: formData
   }).then( r => r.json() ).then(job => {
-    if (job === 'false') console.log('hf')
-    	console.log(job)
+	const a = job.split('/');
     container.querySelector('h1').innerHTML = `
-    <a href="${job}" target="__blank" rel="noopener noreferrer">${job}</a>
+    <a href="${a[1]}/${a[2]}" target="__blank" rel="noopener noreferrer">${job}</a>
     `
   })
 })
